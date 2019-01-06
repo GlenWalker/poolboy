@@ -390,10 +390,10 @@ handle_checkin(Pid, State) ->
            workers_to_reap = WorkersToReap} = State,
     case queue:out(Waiting) of
         {{value, {From, CRef, MRef}}, Left} ->
-            Pid1 = process_pending_exit(Pid, State),
+            {Pid1, State1} = process_pending_exit(Pid, State),
             true = ets:insert(Monitors, {Pid1, CRef, MRef}),
             gen_server:reply(From, Pid1),
-            State#state{waiting = Left};
+            State1#state{waiting = Left};
         {empty, Empty} when Overflow > 0, OverflowTtl > 0 ->
             Tref =
                 erlang:send_after(OverflowTtl, self(), {reap_worker, Pid}),
@@ -442,12 +442,13 @@ process_pending_exits(State) ->
         State
     end.
 
-process_pending_exit(Pid, #state{supervisor = Sup}) ->
+process_pending_exit(Pid, State = #state{supervisor = Sup}) ->
     receive
-        {'EXIT', Pid, _Reason} ->
-            new_worker(Sup)
+        {'EXIT', Pid, _Reason} = Message ->
+            {noreply, NewState} = handle_info(Message, State),
+            {new_worker(Sup), NewState}
     after 0 ->
-        Pid
+        {Pid, State}
     end.
 
 state_name(State = #state{overflow = Overflow}) when Overflow < 1 ->
