@@ -301,7 +301,7 @@ handle_info({'EXIT', Pid, _Reason}, State) ->
                     W = lists:filter(fun (P) -> P =/= Pid end, Workers),
                     case Overflow > 0 of
                       true ->
-                        {noreply, State#state{overflow = Overflow - 1}};
+                        {noreply, State#state{workers = W, overflow = Overflow - 1}};
                       false ->
                         {noreply, State#state{workers = [new_worker(Sup) | W]}}
                     end;
@@ -416,21 +416,22 @@ handle_checkin(Pid, State) ->
 
 handle_worker_exit(Pid, State) ->
     #state{supervisor = Sup,
+           workers = Workers,
+           waiting = Waiting,
            monitors = Monitors,
            overflow = Overflow} = State,
-    case queue:out(State#state.waiting) of
+    case queue:out(Waiting) of
         {{value, {From, CRef, MRef}}, LeftWaiting} ->
-            NewWorker = new_worker(State#state.supervisor),
+            NewWorker = new_worker(Sup),
             true = ets:insert(Monitors, {NewWorker, CRef, MRef}),
             gen_server:reply(From, NewWorker),
             State#state{waiting = LeftWaiting};
         {empty, Empty} when Overflow > 0 ->
             State#state{overflow = Overflow - 1, waiting = Empty};
         {empty, Empty} ->
-            Workers =
-                [new_worker(Sup)
-                 | lists:filter(fun (P) -> P =/= Pid end, State#state.workers)],
-            State#state{workers = Workers, waiting = Empty}
+            Workers1 = [new_worker(Sup)
+                        | lists:filter(fun (P) -> P =/= Pid end, Workers)],
+            State#state{workers = Workers1, waiting = Empty}
     end.
 
 process_pending_exits(State) ->
